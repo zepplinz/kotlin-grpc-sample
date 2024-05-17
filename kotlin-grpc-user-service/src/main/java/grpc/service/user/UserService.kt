@@ -1,33 +1,45 @@
-package grpc.service.user
+import { GetRequest, KeyValueServiceClient, UserRequest, UserResponse, UserServiceService } from 'services';
+import { sendUnaryData, ServerUnaryCall } from 'grpc';
 
-import kotlinx.coroutines.async
-import services.GetRequest
-import services.KeyValueServiceGrpcKt.KeyValueServiceKtStub
-import services.UserRequest
-import services.UserResponse
-import services.UserServiceGrpcKt.UserServiceImplBase
+class UserService implements UserServiceService {
+    private keyValue: KeyValueServiceClient;
 
-class UserService(private val keyValue: KeyValueServiceKtStub) : UserServiceImplBase() {
-
-    override suspend fun getUser(request: UserRequest): UserResponse {
-        suspend fun getValue(key: String) = keyValue.get(
-                GetRequest
-                        .newBuilder()
-                        .setKey(request.name + key)
-                        .build() ?: throw IllegalArgumentException("key not found")
-        )
-
-        val email = async { getValue(".email") }
-        val country = async { getValue(".country") }
-        val active = async { getValue(".active") }
-
-        return UserResponse
-                .newBuilder()
-                .setName(request.name ?: throw IllegalArgumentException("name can not be null"))
-                .setEmailAddress(email.await().value)
-                .setCountry(country.await().value)
-                .setActive(active.await().value?.toBoolean() ?: false)
-                .build()
+    constructor(keyValue: KeyValueServiceClient) {
+        this.keyValue = keyValue;
     }
 
+    async getUser(call: ServerUnaryCall<UserRequest>, callback: sendUnaryData<UserResponse>): Promise<void> {
+        const getValue = async (key: string): Promise<string> => {
+            return new Promise((resolve, reject) => {
+                this.keyValue.get(
+                    new GetRequest().setKey(call.request.getName() + key),
+                    (err, response) => {
+                        if (err) {
+                            reject(new Error('key not found'));
+                        } else {
+                            resolve(response.getValue());
+                        }
+                    }
+                );
+            });
+        };
+
+        try {
+            const email = getValue('.email');
+            const country = getValue('.country');
+            const active = getValue('.active');
+
+            const userResponse = new UserResponse()
+                .setName(call.request.getName() || (() => { throw new Error('name can not be null'); })())
+                .setEmailAddress(await email)
+                .setCountry(await country)
+                .setActive((await active).toLowerCase() === 'true');
+
+            callback(null, userResponse);
+        } catch (error) {
+            callback(error, null);
+        }
+    }
 }
+
+export { UserService };
