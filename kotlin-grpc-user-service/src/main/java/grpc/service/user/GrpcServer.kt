@@ -1,21 +1,24 @@
-package grpc.service.user
+import * as grpc from '@grpc/grpc-js';
+import { KeyValueServiceClient } from './services/KeyValueService';
 
-import io.grpc.ManagedChannelBuilder
-import io.grpc.ServerBuilder
-import services.KeyValueServiceGrpcKt
+function main(args: string[]) {
 
-fun main(args: Array<String>) {
+    const channel = grpc.credentials.createInsecure();
+    const kvsClient = new KeyValueServiceClient('localhost:15000', channel);
 
-    val channel = ManagedChannelBuilder.forAddress("localhost", 15000).usePlaintext().build()
-    val kvsClient = KeyValueServiceGrpcKt.newStub(channel)
+    const server = new grpc.Server();
+    server.addService(UserService, { kvsClient });
+    server.bindAsync('localhost:15001', grpc.ServerCredentials.createInsecure(), () => {
+        server.start();
+        console.log('User service started');
+    });
 
-    val server = ServerBuilder.forPort(15001).addService(UserService(kvsClient)).build()
-    server.start()
-
-    println("User service started")
-
-    Runtime.getRuntime().addShutdownHook(Thread { println("Ups, JVM shutdown") })
-    server.awaitTermination()
-
-    println("User service stopped")
+    process.on('SIGINT', () => {
+        console.log('Ups, Node.js shutdown');
+        server.tryShutdown(() => {
+            console.log('User service stopped');
+        });
+    });
 }
+
+main(process.argv);
